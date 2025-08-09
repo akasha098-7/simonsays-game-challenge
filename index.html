@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Simon Memory Game — aiResuMate Demo</title>
+<style>
+  :root{
+    --bg:#0f1724;
+    --card:#0b1220;
+    --accent:#ef4444;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial;
+    background: linear-gradient(180deg,#071126 0%, #0f1724 100%);
+    color:#e6eef8;
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:20px;
+  }
+
+  .container{
+    width:min(760px,96%);
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    border-radius:16px;
+    padding:20px;
+    box-shadow: 0 8px 30px rgba(2,6,23,0.6);
+    display:grid;
+    grid-template-columns: 1fr 260px;
+    gap:20px;
+    align-items:center;
+  }
+
+  .board{
+    aspect-ratio:1/1;
+    width:100%;
+    background: #081522;
+    border-radius:12px;
+    padding:20px;
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap:12px;
+  }
+
+  .pad{
+    border-radius:12px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    user-select:none;
+    font-weight:700;
+    font-size:20px;
+    transition: transform .08s ease, filter .12s ease;
+    box-shadow: inset 0 -8px rgba(0,0,0,0.25);
+  }
+  .pad:active{ transform: scale(.98) }
+
+  .pad.disabled{ pointer-events:none; opacity:.55; filter:grayscale(.05) }
+
+  .green{ background: linear-gradient(#18a999,#0b7f6f); color:#06261f; }
+  .red  { background: linear-gradient(#ff6161,#d93f3f); color:#3b0808; }
+  .yellow{ background: linear-gradient(#ffd66b,#f2c335); color:#35250b; }
+  .blue { background: linear-gradient(#6ea7ff,#3c6ee6); color:#042243; }
+
+  .pad.flash{
+    filter: brightness(1.35);
+    transform: scale(1.03);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45), 0 0 18px rgba(255,255,255,0.04) inset;
+  }
+
+  .controls{
+    padding:18px;
+    border-radius:10px;
+    background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.02));
+    display:flex;
+    flex-direction:column;
+    gap:14px;
+    align-items:stretch;
+  }
+
+  .title{ font-size:20px; font-weight:700; letter-spacing:.2px; color:#f1f7ff }
+  .subtitle{ font-size:12px; color:#9fb0d0; margin-top: -6px }
+
+  .row{ display:flex; gap:10px; align-items:center; }
+  .btn{
+    border: none;
+    padding:10px 14px;
+    border-radius:10px;
+    background:#1f2937;
+    color:#e6eef8;
+    cursor:pointer;
+    font-weight:600;
+  }
+
+  .btn.primary{ background: linear-gradient(180deg,#ef4444,#dc2626); box-shadow: 0 6px 18px rgba(220,38,38,0.18) }
+  .btn.ghost{ background:transparent; border:1px solid rgba(255,255,255,0.04) }
+
+  .display{
+    margin-top:6px;
+    padding:10px;
+    border-radius:8px;
+    background:rgba(0,0,0,0.25);
+    text-align:center;
+    font-weight:700;
+    font-size:22px;
+    color:#ffdede;
+  }
+
+  .small{
+    font-size:13px;
+    color:#bcd3f0;
+  }
+
+  .footer{
+    font-size:12px;
+    color:#92b0d6;
+    margin-top:6px;
+  }
+
+  @media (max-width:720px){
+    .container{ grid-template-columns:1fr; }
+    .controls{ order:2}
+  }
+</style>
+</head>
+<body>
+  <div class="container" role="application" aria-label="Simon Game">
+    <div>
+      <div class="board" id="board" aria-hidden="false">
+        <div class="pad green" data-key="0" id="pad0">1</div>
+        <div class="pad red" data-key="1" id="pad1">2</div>
+        <div class="pad yellow" data-key="2" id="pad2">3</div>
+        <div class="pad blue" data-key="3" id="pad3">4</div>
+      </div>
+      <div style="margin-top:12px; display:flex; gap:10px; align-items:center; justify-content:space-between;">
+        <div class="small">Tip: Repeat the sequence. Strict mode restarts on a mistake.</div>
+        <div class="small">Level: <span id="level">0</span></div>
+      </div>
+    </div>
+
+    <aside class="controls" aria-label="Controls">
+      <div>
+        <div class="title">Simon Memory</div>
+        <div class="subtitle">Simple classic memory game — click Start to begin</div>
+      </div>
+
+      <div class="row">
+        <button class="btn primary" id="startBtn">Start</button>
+        <button class="btn ghost" id="strictBtn">Strict: <span id="strictState">Off</span></button>
+      </div>
+
+      <div class="display" id="message">Ready</div>
+
+      <div class="footer">
+        <div>Built with Web Audio · Responsive · Works on mobile</div>
+      </div>
+    </aside>
+  </div>
+
+<script>
+/* Simon game logic with WebAudio tones */
+(() => {
+  const pads = Array.from(document.querySelectorAll('.pad'));
+  const startBtn = document.getElementById('startBtn');
+  const strictBtn = document.getElementById('strictBtn');
+  const strictStateEl = document.getElementById('strictState');
+  const messageEl = document.getElementById('message');
+  const levelEl = document.getElementById('level');
+
+  let sequence = [];
+  let playerIndex = 0;
+  let playingSequence = false;
+  let strict = false;
+  let level = 0;
+
+  // Web Audio setup for simple tones
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  const ctx = new AudioCtx();
+  const gains = [0.12,0.12,0.12,0.12]; // volume per pad
+  const freqs = [329.63, 261.63, 196.00, 130.81]; // frequencies for 4 pads
+
+  function playTone(i, duration = 350) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freqs[i];
+    gain.gain.value = gains[i];
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    setTimeout(()=> {
+      osc.stop();
+      osc.disconnect();
+      gain.disconnect();
+    }, duration);
+  }
+
+  function flashPad(i, ms=250) {
+    const pad = pads[i];
+    pad.classList.add('flash');
+    setTimeout(()=> pad.classList.remove('flash'), ms);
+  }
+
+  // disable/enable user interaction when sequence is playing
+  function setPadsEnabled(enabled) {
+    pads.forEach(p => {
+      if(enabled) p.classList.remove('disabled');
+      else p.classList.add('disabled');
+    });
+  }
+
+  function newRound() {
+    level++;
+    levelEl.textContent = level;
+    messageEl.textContent = 'Watch the sequence';
+    // add a random step
+    const next = Math.floor(Math.random()*4);
+    sequence.push(next);
+    playerIndex = 0;
+    playingSequence = true;
+    setPadsEnabled(false);
+    playSequence();
+  }
+
+  function playSequence() {
+    let idx = 0;
+    const interval = 700;
+    const startDelay = 500;
+    setTimeout(() => {
+      const t = setInterval(()=>{
+        const i = sequence[idx];
+        flashPad(i, 400);
+        playTone(i, 400);
+        idx++;
+        if(idx >= sequence.length) {
+          clearInterval(t);
+          playingSequence = false;
+          setPadsEnabled(true);
+          messageEl.textContent = 'Your turn';
+        }
+      }, interval);
+    }, startDelay);
+  }
+
+  function resetGame() {
+    sequence = [];
+    playerIndex = 0;
+    level = 0;
+    levelEl.textContent = level;
+    messageEl.textContent = 'Ready';
+    setPadsEnabled(true);
+  }
+
+  function handlePlayerInput(i) {
+    if(playingSequence) return;
+    playTone(i, 200);
+    flashPad(i, 200);
+    // check
+    if (sequence[playerIndex] === i) {
+      playerIndex++;
+      if(playerIndex >= sequence.length) {
+        // completed round
+        messageEl.textContent = 'Good! Next round...';
+        setPadsEnabled(false);
+        setTimeout(newRound, 800);
+      }
+    } else {
+      // mistake
+      messageEl.textContent = 'Wrong!';
+      playError();
+      setPadsEnabled(false);
+      if(strict) {
+        // reset completely
+        setTimeout(() => {
+          messageEl.textContent = 'Restarting (strict)';
+          setTimeout(() => { resetGame(); startGame(); }, 900);
+        }, 700);
+      } else {
+        // replay the same sequence
+        playerIndex = 0;
+        setTimeout(()=> {
+          messageEl.textContent = 'Try again';
+          playingSequence = true;
+          playSequence();
+        }, 900);
+      }
+    }
+  }
+
+  function playError() {
+    // error sound
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.connect(g);
+    g.connect(ctx.destination);
+    osc.type = 'sawtooth';
+    osc.frequency.value = 120;
+    g.gain.value = 0.18;
+    osc.start();
+    setTimeout(()=> { osc.frequency.value = 80; }, 120);
+    setTimeout(()=> { osc.stop(); osc.disconnect(); g.disconnect(); }, 400);
+  }
+
+  function startGame() {
+    // ensure audio resumed on user gesture
+    if (ctx.state === 'suspended') ctx.resume();
+    sequence = [];
+    playerIndex = 0;
+    level = 0;
+    setTimeout(newRound, 120);
+  }
+
+  // wire up pad events (mouse + touch)
+  pads.forEach((pad, i) => {
+    pad.addEventListener('click', ()=> handlePlayerInput(i));
+    // support keyboard: 1-4
+    window.addEventListener('keydown', (e) => {
+      if(['1','2','3','4'].includes(e.key)) {
+        const idx = Number(e.key)-1;
+        handlePlayerInput(idx);
+      }
+    });
+    // touch feedback (optional)
+    pad.addEventListener('touchstart', (ev) => {
+      ev.preventDefault();
+      pad.classList.add('flash');
+      playTone(i, 160);
+    }, {passive:false});
+    pad.addEventListener('touchend', (ev) => {
+      ev.preventDefault();
+      pad.classList.remove('flash');
+    }, {passive:false});
+  });
+
+  startBtn.addEventListener('click', () => {
+    messageEl.textContent = 'Starting...';
+    startGame();
+  });
+
+  strictBtn.addEventListener('click', () => {
+    strict = !strict;
+    strictStateEl.textContent = strict ? 'On' : 'Off';
+    strictBtn.classList.toggle('primary', strict);
+  });
+
+  // initialize
+  resetGame();
+})();
+</script>
+</body>
+</html>
